@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>삼목 서버 테스트 (3일차)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
+    <style>
+      .board {
+        display: grid;
+        grid-template-columns: repeat(3, 100px);
+        margin-top: 20px;
+      }
+      .cell {
+        width: 100px;
+        height: 100px;
+        border: 1px solid black;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 60px;
+        font-weight: bold;
+        cursor: pointer;
+      }
+
+      .X {
+        color: #007bff;
+      }
+      .O {
+        color: #dc3545;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>삼목 실시간 게임</h1>
+    <p>브라우저 2개를 열어 접속하고 X 또는 O를 배정받으세요.</p>
+    <div id="status" style="color: blue; font-weight: bold">연결 중...</div>
+    <div class="board">
+      <div class="cell" data-id="1"></div>
+      <div class="cell" data-id="2"></div>
+      <div class="cell" data-id="3"></div>
+      <div class="cell" data-id="4"></div>
+      <div class="cell" data-id="5"></div>
+      <div class="cell" data-id="6"></div>
+      <div class="cell" data-id="7"></div>
+      <div class="cell" data-id="8"></div>
+      <div class="cell" data-id="9"></div>
+    </div>
+    <script>
+      const socket = io()
+      const statusDiv = document.getElementById('status')
+      const cells = document.querySelectorAll('.cell')
+
+      let playerMark = '' // 나의 마크 ('X' 또는 'O')
+      let myTurn = false
+      let gameActive = false
+
+      // 마크를 포함한 기본 상태 메시지 생성 함수
+      function getStatusMessage(baseMessage) {
+        if (playerMark) {
+          return baseMessage + ` (당신은 ${playerMark}팀)`
+        }
+        return baseMessage
+      }
+
+      // 서버 연결 성공
+      socket.on('connect', function () {
+        statusDiv.innerHTML = '🟢 서버 연결 완료. 상대방을 기다리는 중...'
+      })
+
+      // 서버로부터 일반 메시지 수신 (디버깅 및 알림용)
+      socket.on('message', function (msg) {
+        statusDiv.innerHTML += `<br>💬 ${msg.data}`
+      })
+
+      // 게임 시작 이벤트 수신
+      socket.on('game_start', function (data) {
+        // 보드 초기화 및 스타일 초기화
+        cells.forEach((cell) => {
+          cell.innerHTML = ''
+          cell.classList.remove('X', 'O')
+        })
+
+        playerMark = data.mark // 내 마크 설정
+        gameActive = true
+
+        statusDiv.innerHTML = `게임 시작! 당신은 **${playerMark}**입니다.`
+
+        // 턴 확인
+        if (data.turn === socket.id) {
+          myTurn = true
+          statusDiv.innerHTML = getStatusMessage('▶️ **당신의 턴입니다!**')
+        } else {
+          myTurn = false
+          statusDiv.innerHTML = getStatusMessage('상대방의 턴입니다...')
+        }
+      })
+
+      // 셀 클릭 이벤트: 턴과 상태 체크 후 서버로 전송
+      cells.forEach((cell) => {
+        cell.addEventListener('click', function () {
+          if (!gameActive || !myTurn) {
+            return
+          }
+          if (this.innerHTML) {
+            return
+          }
+
+          const cellId = this.getAttribute('data-id')
+          socket.emit('place_piece', { id: cellId })
+        })
+      })
+
+      // 서버로부터 보드 업데이트 정보를 받았을 때
+      socket.on('board_update', function (data) {
+        const cell = document.querySelector(`.cell[data-id="${data.id}"]`)
+
+        // 마크 표시 및 스타일 적용
+        if (cell && !cell.innerHTML) {
+          cell.innerHTML = data.mark
+          cell.classList.add(data.mark)
+        }
+
+        // 턴 업데이트
+        if (data.next_turn === socket.id) {
+          myTurn = true
+          statusDiv.innerHTML = getStatusMessage('✅ **당신의 턴입니다!**')
+        } else {
+          myTurn = false
+          statusDiv.innerHTML = getStatusMessage('상대방의 턴입니다...')
+        }
+      })
+
+      // 게임 종료 이벤트 수신
+      socket.on('game_end', function (data) {
+        gameActive = false
+        myTurn = false
+
+        let message = ''
+
+        if (data.winner === 'DRAW') {
+          message = getStatusMessage('🏁 **게임 종료! 무승부입니다!** 🤝')
+        } else {
+          if (data.winner === playerMark) {
+            // 승리했을 때: "X팀 승리. 승리했습니다."
+            message = getStatusMessage(
+              `🎉 **게임 종료! ${data.winner}팀 승리. 승리했습니다!** 🏆`
+            )
+          } else {
+            // 패배했을 때: "O팀 패배. 패배했습니다."
+            message = getStatusMessage(
+              `😭 **게임 종료! ${data.loser}팀 패배. 패배했습니다...** ⚔️`
+            )
+          }
+        }
+
+        statusDiv.innerHTML = message
+      })
+    </script>
+  </body>
+</html>
